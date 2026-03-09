@@ -144,7 +144,7 @@ To contribute a new signature, open a pull request with the string, a short desc
 |---|---|
 | [`.github/BACKDOORS.md`](.github/BACKDOORS.md) | A running catalogue of real backdoor samples observed in the wild, with structural analysis, the signatures that detect each one, and remediation steps. Start here if you want to understand what pxSentinel is actually protecting against. |
 | [`.github/DEVELOPMENT.md`](.github/DEVELOPMENT.md) | Architecture decisions, design rationale, and a detailed account of how pxSentinel was hardened against a live backdoor during development. Useful if you want to extend the scanner or understand why specific choices were made. |
-| [`.github/SECURITY.md`](.github/SECURITY.md) | Security policy — supported versions and the responsible disclosure process for reporting vulnerabilities in pxSentinel itself. |
+| [`.github/SECURITY.md`](.github/SECURITY.md) | Security policy supported versions and the responsible disclosure process for reporting vulnerabilities in pxSentinel itself. |
 
 ---
 
