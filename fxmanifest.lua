@@ -9,8 +9,6 @@ repository 'https://github.com/CodeMeAPixel/pxSentinel'
 license 'AGPL-3.0-or-later'
 version '1.0.0-beta.1'
 
-tags { 'security', 'backdoor', 'scanner', 'malware', 'protection', 'server-side', 'anticheat', 'detection', 'safeguard' }
-
 server_scripts {
     'config.lua',
     'blocked.lua',
