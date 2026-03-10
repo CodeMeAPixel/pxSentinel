@@ -1,14 +1,8 @@
 -- pxSentinel - Server-side backdoor signature detection
 -- https://github.com/CodeMeAPixel/pxSentinel
--- Config is loaded from: config.lua, blocked.lua, allowed.lua
-
--- ┌─────────────────────────────────────────────────────────────────────────┐
--- │                              Internals                                  │
--- └─────────────────────────────────────────────────────────────────────────┘
 
 local selfName = GetCurrentResourceName()
 
--- Build an O(1) lookup set from the SafeResources list.
 local safeResourceSet = {}
 for _, name in ipairs(Config.SafeResources) do
     safeResourceSet[name] = true
@@ -22,17 +16,6 @@ local function log(color, msg)
     print(('^%d[pxSentinel]^0 %s'):format(color, msg))
 end
 
---- Scan a single resource's server scripts for known backdoor signatures.
---- Returns an empty table without scanning if the resource is on the safe list.
---- Covers 'server_script', 'server_only_script', and 'shared_script' manifest
---- entries. For Node.js resources it also probes common secondary .js filenames
---- that backdoors frequently require() without declaring in the manifest.
---- @param resource string
---- @return table detections  List of { resource, file, signature } entries.
-
--- Common secondary .js filenames that backdoors load via require() without
--- listing them in the manifest. LoadResourceFile returns nil for paths that
--- do not exist, so probing all of them on every Node.js resource is safe.
 local JS_PROBE_PATHS = {
     'index.js', 'server.js', 'main.js', 'app.js',
     'src/index.js', 'src/server.js', 'src/main.js',
@@ -42,17 +25,13 @@ local JS_PROBE_PATHS = {
 local function scanResource(resource)
     if isSafe(resource) then return {} end
     local detections = {}
-    local scannedPaths = {}   -- deduplicate across metadata keys
+    local scannedPaths = {}
 
     local function checkContent(filePath, content)
         if scannedPaths[filePath] or not content then return end
         scannedPaths[filePath] = true
 
         for _, signature in ipairs(Config.Signatures) do
-            -- Pass true as the 4th argument for plain-text matching.
-            -- This prevents any Lua pattern metacharacters inside a signature
-            -- string from being interpreted as regex, which could cause
-            -- incorrect results or unexpected behaviour.
             if string.find(content, signature, 1, true) then
                 detections[#detections + 1] = {
                     resource  = resource,
@@ -63,13 +42,8 @@ local function scanResource(resource)
         end
     end
 
-    -- Track whether this resource has any declared .js files so we know
-    -- whether to run the Node.js secondary-path probes below.
     local hasJS = false
 
-    -- Scan server_script, server_only_script, and shared_script manifest entries.
-    -- shared_script files run on both the client and the server; malicious code
-    -- is just as easily embedded there as in a server-only entry.
     for _, metaKey in ipairs({ 'server_script', 'server_only_script', 'shared_script' }) do
         local numFiles = GetNumResourceMetadata(resource, metaKey) or 0
 
@@ -87,10 +61,6 @@ local function scanResource(resource)
         end
     end
 
-    -- For Node.js resources, also probe common secondary .js paths that do not
-    -- always appear in the manifest. Backdoors frequently split themselves into
-    -- a thin declared loader and a heavier payload that is require()'d at
-    -- runtime. The declared entry point alone does not reveal the payload.
     if hasJS then
         for _, probePath in ipairs(JS_PROBE_PATHS) do
             checkContent(probePath, LoadResourceFile(resource, probePath))
@@ -100,8 +70,6 @@ local function scanResource(resource)
     return detections
 end
 
---- Scan all currently running resources except pxSentinel itself.
---- @return table detections  Flat list of all detections across all resources.
 local function scanAllResources()
     local allDetections = {}
 
@@ -112,8 +80,6 @@ local function scanAllResources()
                 allDetections[#allDetections + 1] = detection
             end
         end
-        -- Yield every iteration to avoid blocking the server thread while
-        -- reading potentially large files across many resources.
         Wait(0)
     end
 
@@ -135,7 +101,7 @@ local function sendDiscordAlert(detections)
         username = 'pxSentinel',
         embeds = {
             {
-                color       = 15158332, -- red
+                color       = 15158332,
                 title       = '\226\154\160\239\184\143 Backdoor Signature Detected',
                 description = table.concat(lines, '\n\n'),
                 footer      = { text = 'pxSentinel \226\128\162 github.com/CodeMeAPixel/pxSentinel' },
@@ -153,7 +119,6 @@ end
 local function handleDetections(detections)
     if #detections == 0 then return end
 
-    -- Group detections by resource so we can act on each one individually.
     local byResource = {}
     for _, d in ipairs(detections) do
         if not byResource[d.resource] then
@@ -207,28 +172,17 @@ local function handleDetections(detections)
 
     if Config.StopServer then
         log(1, 'Halting server due to detected backdoor signature(s)...')
-        -- Allow time for the Discord webhook and StopResource calls to dispatch.
         Wait(3000)
         os.exit(1)
     end
 end
 
--- ┌─────────────────────────────────────────────────────────────────────────┐
--- │                            Event Handlers                               │
--- └─────────────────────────────────────────────────────────────────────────┘
-
--- Track whether the initial full scan has already run so that resources
--- started during the settle delay are not double-scanned.
 local initialScanDone = false
 
 AddEventHandler('onResourceStart', function(res)
     if not Config.Enable then return end
 
     if res == selfName then
-        -- Wait for the configured settle delay before scanning so that all
-        -- resources started before pxSentinel have time to fully register
-        -- their file metadata. Place 'ensure pxSentinel' last in server.cfg
-        -- for best results.
         CreateThread(function()
             if Config.ScanDelay > 0 then
                 log(2, ('Waiting %ds for all resources to settle before scanning...'):format(Config.ScanDelay / 1000))
@@ -246,25 +200,11 @@ AddEventHandler('onResourceStart', function(res)
             end
         end)
     elseif initialScanDone then
-        -- Only scan resources that start dynamically *after* the initial full
-        -- scan has completed. Resources that start during the settle window are
-        -- already covered by scanAllResources().
         local detections = scanResource(res)
         handleDetections(detections)
     end
 end)
 
--- ┌─────────────────────────────────────────────────────────────────────────┐
--- │                     Filesystem Permission Violations                    │
--- └─────────────────────────────────────────────────────────────────────────┘
-
--- FiveM's Node.js scripting runtime emits this event when a resource attempts
--- a filesystem operation it is not permitted to perform.
---
--- IMPORTANT: this handler only fires for *filesystem write* operations that
--- the runtime blocks. It does NOT cover in-memory RCE delivered via HTTPS
--- fetch + eval(), which executes entirely without touching the filesystem.
--- Those payloads must be caught earlier by the static signature scan.
 AddEventHandler('onResourceFsPermissionViolation', function(resourceName, permission, path)
     if not Config.Enable then return end
     if isSafe(resourceName) then return end
